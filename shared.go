@@ -96,6 +96,7 @@ const (
 	PS256 = SignatureAlgorithm("PS256") // RSASSA-PSS using SHA256 and MGF1-SHA256
 	PS384 = SignatureAlgorithm("PS384") // RSASSA-PSS using SHA384 and MGF1-SHA384
 	PS512 = SignatureAlgorithm("PS512") // RSASSA-PSS using SHA512 and MGF1-SHA512
+	BLIND = SignatureAlgorithm("BLIND") // BLIND-RSA
 )
 
 // Content encryption algorithms

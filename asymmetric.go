@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/square/go-jose/cipher"
+	"github.com/alxdavids/go-jose/cipher"
 )
 
 // A generic RSA-based encrypter/verifier
@@ -79,7 +79,7 @@ func newRSARecipient(keyAlg KeyAlgorithm, publicKey *rsa.PublicKey) (recipientKe
 func newRSASigner(sigAlg SignatureAlgorithm, privateKey *rsa.PrivateKey) (recipientSigInfo, error) {
 	// Verify that key management algorithm is supported by this encrypter
 	switch sigAlg {
-	case RS256, RS384, RS512, PS256, PS384, PS512:
+	case RS256, RS384, RS512, PS256, PS384, PS512, BLIND:
 	default:
 		return recipientSigInfo{}, ErrUnsupportedAlgorithm
 	}
@@ -225,26 +225,32 @@ func (ctx rsaDecrypterSigner) signPayload(payload []byte, alg SignatureAlgorithm
 		hash = crypto.SHA384
 	case RS512, PS512:
 		hash = crypto.SHA512
+	case BLIND:
 	default:
 		return Signature{}, ErrUnsupportedAlgorithm
 	}
-
-	hasher := hash.New()
-
-	// According to documentation, Write() on hash never fails
-	_, _ = hasher.Write(payload)
-	hashed := hasher.Sum(nil)
 
 	var out []byte
 	var err error
 
 	switch alg {
 	case RS256, RS384, RS512:
+		hasher := hash.New()
+		// According to documentation, Write() on hash never fails
+		_, _ = hasher.Write(payload)
+		hashed := hasher.Sum(nil)
 		out, err = rsa.SignPKCS1v15(randReader, ctx.privateKey, hash, hashed)
 	case PS256, PS384, PS512:
+		hasher := hash.New()
+		// According to documentation, Write() on hash never fails
+		_, _ = hasher.Write(payload)
+		hashed := hasher.Sum(nil)
 		out, err = rsa.SignPSS(randReader, ctx.privateKey, hash, hashed, &rsa.PSSOptions{
 			SaltLength: rsa.PSSSaltLengthAuto,
 		})
+	case BLIND:
+		// No error returned since just big int arithmetic
+		out = blindSign(ctx.privateKey, payload)
 	}
 
 	if err != nil {
@@ -255,6 +261,13 @@ func (ctx rsaDecrypterSigner) signPayload(payload []byte, alg SignatureAlgorithm
 		Signature: out,
 		protected: &rawHeader{},
 	}, nil
+}
+
+// This is the signing function in the event that we compute a blind signature
+func blindSign(priv *rsa.PrivateKey, payload []byte) []byte {
+	m := new(big.Int).SetBytes(payload)
+	sig := new(big.Int).Exp(m, priv.D, priv.N)
+	return sig.Bytes()
 }
 
 // Verify the given payload
@@ -268,24 +281,38 @@ func (ctx rsaEncrypterVerifier) verifyPayload(payload []byte, signature []byte, 
 		hash = crypto.SHA384
 	case RS512, PS512:
 		hash = crypto.SHA512
+	case BLIND:
 	default:
 		return ErrUnsupportedAlgorithm
 	}
 
-	hasher := hash.New()
-
-	// According to documentation, Write() on hash never fails
-	_, _ = hasher.Write(payload)
-	hashed := hasher.Sum(nil)
-
 	switch alg {
 	case RS256, RS384, RS512:
+		hasher := hash.New()
+		_, _ = hasher.Write(payload)
+		hashed := hasher.Sum(nil)
 		return rsa.VerifyPKCS1v15(ctx.publicKey, hash, hashed, signature)
 	case PS256, PS384, PS512:
+		hasher := hash.New()
+		_, _ = hasher.Write(payload)
+		hashed := hasher.Sum(nil)
 		return rsa.VerifyPSS(ctx.publicKey, hash, hashed, signature, nil)
+	case BLIND:
+		return blindVerify(ctx.publicKey, payload, signature)
 	}
 
 	return ErrUnsupportedAlgorithm
+}
+
+func blindVerify(pub *rsa.PublicKey, payload, sig []byte) error {
+	sigV := new(big.Int).SetBytes(sig)
+	m := new(big.Int).SetBytes(payload)
+	mSig := new(big.Int).Exp(sigV, big.NewInt(int64(pub.E)), pub.N)
+	if mSig.Cmp(m) != 0 {
+		return ErrCryptoFailure
+	} else {
+		return nil
+	}
 }
 
 // Encrypt the given payload and update the object.

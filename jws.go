@@ -86,9 +86,14 @@ func (obj JsonWebSignature) computeAuthData(signature *Signature) []byte {
 		serializedProtected = ""
 	}
 
-	return []byte(fmt.Sprintf("%s.%s",
-		serializedProtected,
-		base64URLEncode(obj.payload)))
+	// Again, ignore if we're blinding
+	if signature.mergedHeaders().Alg == "BLIND" {
+		return obj.payload
+	} else {
+		return []byte(fmt.Sprintf("%s.%s",
+			serializedProtected,
+			base64URLEncode(obj.payload)))
+	}
 }
 
 // parseSignedFull parses a message in full format.

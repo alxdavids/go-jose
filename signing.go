@@ -163,9 +163,17 @@ func (ctx *genericSigner) Sign(payload []byte) (*JsonWebSignature, error) {
 
 		serializedProtected := mustSerializeJSON(protected)
 
-		input := []byte(fmt.Sprintf("%s.%s",
-			base64URLEncode(serializedProtected),
-			base64URLEncode(payload)))
+		var input []byte
+		// We can't add the recipient info to the signature if we're blinding.
+		// What effect does this have??
+		switch recipient.sigAlg {
+		case BLIND:
+			input = payload
+		default:
+			input = []byte(fmt.Sprintf("%s.%s",
+				base64URLEncode(serializedProtected),
+				base64URLEncode(payload)))
+		}
 
 		signatureInfo, err := recipient.signer.signPayload(input, recipient.sigAlg)
 		if err != nil {
@@ -194,6 +202,11 @@ func (ctx *genericSigner) SetEmbedJwk(embed bool) {
 
 // Verify validates the signature on the object and returns the payload.
 func (obj JsonWebSignature) Verify(verificationKey interface{}) ([]byte, error) {
+	return obj.VerifyBlind(verificationKey, nil)
+}
+
+// New function for also passing in a payload for verification in blind setting
+func (obj JsonWebSignature) VerifyBlind(verificationKey interface{}, blindPayload []byte) ([]byte, error) {
 	verifier, err := newVerifier(verificationKey)
 	if err != nil {
 		return nil, err
@@ -206,7 +219,12 @@ func (obj JsonWebSignature) Verify(verificationKey interface{}) ([]byte, error) 
 			continue
 		}
 
+		// We need to set the new payload if we're calculating a blind signature
+		if headers.Alg == "BLIND" {
+			obj.payload = blindPayload
+		}
 		input := obj.computeAuthData(&signature)
+
 		alg := SignatureAlgorithm(headers.Alg)
 		err := verifier.verifyPayload(input, signature.Signature, alg)
 		if err == nil {

@@ -28,7 +28,7 @@ import (
 	"hash"
 	"io"
 
-	"github.com/square/go-jose/cipher"
+	"github.com/alxdavids/go-jose/cipher"
 )
 
 // Random reader (stubbed out in tests)
